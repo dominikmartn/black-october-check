@@ -2,7 +2,7 @@
 
 PRs are welcome. People paste this file into an agent that runs the commands on their machine, so every change has to hold up.
 
-- Every new item needs a linked public source: a vendor advisory, release notes, a CVE entry or an incident page. A private email or a screenshot is not enough.
+- Every new item needs a linked public source: a vendor advisory, release notes, a CVE entry or an incident page. A private email or a screenshot is not enough on its own. If a vendor only told its customers by email, the entry must say so ("No public post yet").
 - "What we saw" lines only come from a real run. Say which OS and version, and when.
 - Checks are read-only. Anything that changes the machine goes into the fixes, and the agent asks before each one.
 - Never print secrets. No process arguments, no file contents.

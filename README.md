@@ -158,6 +158,7 @@ If you ever stored API keys or env vars on one of these, list them for the user:
 - OpenCode Console, Oct 17. [The Hacker News](https://thehackernews.com/2026/10/opencode-console-breach-may-have.html)
 - Fireworks AI, Oct 9, per press reports.
 - TiDB Cloud, per reports. [Summary post](https://x.com/gregosuri/status/2112939503266693337)
+- Treg (treg.to), Oct 22. The founder emailed customers on Oct 23 that an attacker could reach every key stored in Treg, and that the default Treg API keys stopped working. No public post yet. Rotate every key you stored there, and your Treg API key.
 ```bash
 command -v railway opencode; ls -d ~/.railway ~/.config/opencode 2>/dev/null
 ```
