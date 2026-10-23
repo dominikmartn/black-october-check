@@ -66,7 +66,9 @@ grep -n '"WebFetch"' ~/.claude/settings.json || echo "no WebFetch deny"
 Eight eMudhra intermediate CA keys are compromised. Anyone holding them can impersonate any website. Browsers block them through revocation lists, but many other clients do not. [Incident page](https://emudhra.we-have-a-problem.com/)
 pip and uv bring their own CA list. `pip install -U certifi` does not change what pip itself trusts. Fixed: **pip 26.2.2** [pip changelog](https://pip.pypa.io/en/stable/news/) and **uv 0.13.5** [uv release](https://github.com/astral-sh/uv/releases/tag/0.13.5). uv 0.13.4 removed the affected root from uv's own list. 0.13.5 also rejects any chain that contains a compromised intermediate key, and updates uv's managed Python builds.
 
-Test every client you use against all 14 test hosts from the incident page. They cover the six TLS intermediates under each of the two roots, plus two hosts whose certificates were never logged to Certificate Transparency. Add every virtualenv you install packages with to the python list. Nothing gets installed: the package name does not exist and the test pages have no packages.
+Java brings its own trust store too: every JDK has its own `lib/security/cacerts` and `lib/security/blocked.certs`, so test each JDK. CVE-2026-91403 affects OpenJDK 27.0.1, 25.0.5, 21.0.13, 17.0.21, 11.0.32.1, 8u504 and earlier, and Oracle Java SE and GraalVM up to the versions in Oracle's alert. Java 26 is out of support and is not on either list, so it gets no fix. [OpenJDK advisory](https://openjdk.org/groups/vulnerability/advisories/2026-10-21) [Oracle alert](https://www.oracle.com/security-alerts/alert-cve-2026-91403.html) The test below needs JDK 11 or newer, so it does not cover JDK 8.
+
+Test every client you use against all 14 test hosts from the incident page. They cover the six TLS intermediates under each of the two roots, plus two hosts whose certificates were never logged to Certificate Transparency. Add every virtualenv you install packages with to the python list. Add every JDK that `java_home` does not list, such as Android Studio's `jbr` or Homebrew's `openjdk`, to the java list. The Java test needs JDK 11 or newer. Nothing gets installed: the package name does not exist and the test pages have no packages.
 ```bash
 hosts() { for k in dv ov ev; do for g in g3b g3c; do printf '%s\n' "$k-$g" "$k-$g-aaa"; done; done; printf '%s\n' dv-g3b-noct dv-g3b-aaa-noct; }
 GOOD=https://emudhra.we-have-a-problem.com/   # control: same site, valid certificate
@@ -82,6 +84,10 @@ except Exception as e: print("ok" if hasattr(e, "code") else "cert" if isinstanc
             awk '/"GET [^"]*" (200|304)/{ok=1} /problem confirming the ssl certificate/ && !/module is (not available|unavailable)/{c=1} END{print (ok ? "ok" : c ? "cert" : "err")}' ;;
   uv)     echo zz-nonexistent-pkg-31337 | (cd "$T" && uv pip compile - -vv --no-cache --no-index --find-links "$2" 2>&1) |
             awk '/Received response .*status/{ok=1} /invalid peer certificate/{c=1} END{print (ok ? "ok" : c ? "cert" : "err")}' ;;
+  java:*) [ -f "$T/P.java" ] || printf '%s\n' 'public class P { public static void main(String[] a) { try { java.net.HttpURLConnection c = (java.net.HttpURLConnection) java.net.URI.create(a[0]).toURL().openConnection();' \
+            'c.setConnectTimeout(15000); c.setReadTimeout(15000); c.getResponseCode(); System.out.println("ok"); } catch (Exception e) { for (Throwable t = e; t != null; t = t.getCause())' \
+            'if (t instanceof java.security.cert.CertificateException || t instanceof java.security.cert.CertPathValidatorException || t instanceof java.security.cert.CertPathBuilderException) { System.out.println("cert"); return; } System.out.println("err"); } } }' > "$T/P.java"
+          "${1#java:}/bin/java" "$T/P.java" "$2" </dev/null 2>/dev/null || echo err ;;
 esac; }
 # verdict <client> [label]: the control must load, then all 14 hosts must be rejected
 verdict() {
@@ -97,6 +103,9 @@ for py in $( { which -a python3; printf '%s\n' /usr/bin/python3 path/to/venv/bin
   [ -x "$py" ] && verdict "pip:$py" "$py pip $("$py" -m pip --version 2>/dev/null | awk '{print $2}')"
 done
 command -v uv >/dev/null && verdict uv "uv $(uv --version | awk '{print $2}')"
+{ /usr/libexec/java_home -V 2>&1 | grep -oE '/.*/Contents/Home$'; printf '%s\n' path/to/other/jdk/Contents/Home; } | sort -u | while IFS= read -r j; do
+  [ -x "$j/bin/java" ] && verdict "java:$j" "java $("$j/bin/java" -version 2>&1 | head -1 | cut -d'"' -f2) $j"
+done
 rm -rf "$T"
 ```
 How to read it:
@@ -110,6 +119,7 @@ What we saw:
 - `nscurl` (Apple URLSession) printed "That's bad!" on macOS 26.6.2 and 27.0.1, so Apple's block was not active for us.
 - `/usr/bin/curl` returned 200 on both Macs.
 - Oct 23, with the 14-host script above on one Mac after all fixes: curl, nscurl, python, node, Homebrew pip 26.2.2 and uv 0.13.5 were safe. Apple's `/usr/bin/python3` with pip 21.2.4 trusted all 14.
+- Oct 23, Java on one Mac: Temurin 21.0.12 and 26.0.2 trusted the 7 hosts under emSign and rejected the 7 under AAA. After F4 step 6, both rejected all 14, and github.com still loaded.
 - Homebrew python and the `certifi` package accepted the chain, until `brew upgrade ca-certificates certifi` was run.
 - pip and uv on Oct 22: uv 0.12.1 and 0.11.2 trusted the bad chain. pip 26.0.1 in an old virtualenv trusted it. Apple's `/usr/bin/python3` with pip 21.2.4 trusted it. Homebrew's pip 26.2.2 refused it.
 - Node 26.12.1 returned `CERT_REVOKED`.
@@ -255,6 +265,22 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
    ```bash
    sudo sed -i -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&|' -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&|' /etc/ca-certificates.conf && sudo update-ca-certificates
    ```
+6. **Java.** Update each JDK that check 5 flagged to a release newer than the affected versions, from the vendor you installed it from. Until then, and for Java 26, block the 16 certificates in that JDK, as the OpenJDK advisory advises. `blocked.certs` starts with `Algorithm=SHA-256`, followed by one uppercase fingerprint per line. Adding lines can only remove trust. The 16 include two eMudhra code-signing CAs, so jars signed under them stop verifying, the same as with Oracle's update. Set `BAD` from step 3 first.
+   ```bash
+   block_jdk() {
+     f="$1/lib/security/blocked.certs"; t=$(mktemp)
+     [ "$(echo "$BAD" | tr ' ' '\n' | grep -cE '^[0-9A-F]{64}$')" -eq 16 ] || { echo "STOP: set BAD from step 3 first"; return 1; }
+     [ -f "$f" ] || { echo "STOP: no $f. JDK 8 uses jre/lib/security/blacklisted.certs, see the OpenJDK advisory"; return 1; }
+     [ "$(head -1 "$f")" = Algorithm=SHA-256 ] || { echo "STOP: unexpected format in $f"; return 1; }
+     [ -f "$f.bak-emudhra-2026-10-23" ] || sudo cp -p "$f" "$f.bak-emudhra-2026-10-23"
+     cat "$f" > "$t"; [ -z "$(tail -c 1 "$t")" ] || echo >> "$t"
+     echo "$BAD" | tr ' ' '\n' | grep -E '^[0-9A-F]{64}$' | grep -vxF -f "$f" >> "$t"
+     sudo install -m 644 -o "$(stat -f %u "$f")" -g "$(stat -f %g "$f")" "$t" "$f" &&
+       echo "ok: $f blocks $(echo "$BAD" | tr ' ' '\n' | grep -E '^[0-9A-F]{64}$' | grep -cxF -f "$f") of 16"
+   }
+   block_jdk /Library/Java/JavaVirtualMachines/<name>.jdk/Contents/Home   # once per flagged JDK
+   ```
+   A JVM reads `blocked.certs` only when it starts, so restart every running Java process afterwards (Gradle daemons, IDEs, services). Then run check 5 again. It must show "safe" for that JDK.
 
 **F5. Tailscale.** Update to 1.104.2 or later.
 - If Homebrew's `tailscaled` runs as a system daemon, use this to reinstall it and restart it:
@@ -290,6 +316,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
 
 - **cert.pem:** `sudo cp -p /etc/ssl/cert.pem.bak-emudhra-2026-10-22 /etc/ssl/cert.pem`
 - **Keychain denies:** for each file in `~/emudhra-proof/certs`, run `sudo security remove-trusted-cert -d <file>.crt.pem`. You can also open Keychain Access, go to System, find the eMudhra certificate and delete its custom trust setting.
+- **Java blocked.certs:** `sudo cp -p <jdk>/lib/security/blocked.certs.bak-emudhra-2026-10-23 <jdk>/lib/security/blocked.certs`
 - **WebFetch deny:** remove `"WebFetch"` from `permissions.deny` in `~/.claude/settings.json`. Running sessions pick it up on their own.
 - **Firewall:** `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off`
 - **brotli, Node, ca-certificates, Chrome, macOS:** no undo needed. These are plain upgrades.
