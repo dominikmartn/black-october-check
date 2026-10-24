@@ -1,10 +1,10 @@
 # Black October: check your Mac with your coding agent
 
-As of 2026-10-23. For people who run AI coding agents (Claude Code, Codex, and similar) on their Mac with full shell access.
+As of 2026-10-24. For people who run AI coding agents (Claude Code, Codex, and similar) on their Mac with full shell access.
 
 How to use it: paste this file into your agent and say: **run the checks, report, then ask me before every fix.**
 
-Lines marked "What we saw" come from two Macs (macOS 26.6.2 and 27.0.1) on Oct 22 and 23. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
+Lines marked "What we saw" come from two Macs (macOS 26.6.2 and 27.0.1) between Oct 22 and 24. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
 
 ## Contract for the agent
 
@@ -151,6 +151,11 @@ softwareupdate -l
   ```bash
   find ~/Developer ~/code ~/src -maxdepth 6 -path '*/node_modules/storybook/package.json' 2>/dev/null | while read -r f; do echo "$(grep -m1 '"version"' "$f") ${f%/node_modules/*}"; done
   ```
+- **Pillow, the Python imaging library (CVE-2026-112398).** A heap overflow in its FlashPix (FPX) decoder lets one crafted image run code when an app opens it with `Image.open()`. Pillow spots FPX by the file's content, not its name, so a renamed `.jpg` works too. It is only reachable when the optional `olefile` package is installed in the same environment. Affected: 12.3.0 and older. Fixed: 13.0.0, which needs Python 3.11 or newer. [Pillow advisory](https://github.com/python-pillow/Pillow/security/advisories/GHSA-5x8w-8jj5-q52h)
+  ```bash
+  for py in $(which -a python3 python3.9 python3.10 python3.11 python3.12 python3.13 python3.14 2>/dev/null | sort -u) $(find ~/Developer ~/code ~/src ~/.local -maxdepth 5 -name pyvenv.cfg 2>/dev/null | sed 's|pyvenv.cfg$|bin/python|'); do [ -x "$py" ] || continue; "$py" -c 'import sys, importlib.util as u; u.find_spec("PIL") and print(__import__("PIL").__version__, "olefile=" + ("yes" if u.find_spec("olefile") else "no"), sys.executable)' 2>/dev/null; done | sort -u
+  ```
+  At risk means an old Pillow with `olefile=yes` in something that opens images from other people (uploads, bots, scrapers). What we saw: 6 Pillow installs on one Mac and 3 on the other, 11.3.0 to 12.3.0, none with `olefile`.
 
 ### 9. Keys stored on platforms that were breached
 If you ever stored API keys or env vars on one of these, list them for the user:
@@ -302,6 +307,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
 - Ruby: update to 4.0.9, 3.4.12 or 3.3.13 (or later on the same branch), then restart every Ruby service. On 3.2 or older, move to a supported branch.
 - Next.js: update `next` to 16.4.1 or 15.5.28 and make sure `npm ls sharp` shows 0.35.5 or later, then redeploy.
 - Storybook: update `storybook` and its `@storybook/*` addons to the fixed version for your major. Do not run an old `storybook dev` until then.
+- Pillow: in each environment the check flagged, run `<python> -m pip install -U 'pillow>=13'` (or `uv pip install` in uv environments), then restart whatever uses it. Python 3.10 and older get no fixed Pillow: move the app to a newer Python, or remove `olefile` from that environment, which turns FPX support off.
 
 **F9. Hygiene.**
 - Remove dead npm tokens once you have confirmed they are dead.
