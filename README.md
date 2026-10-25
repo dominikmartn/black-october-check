@@ -1,10 +1,10 @@
 # Black October: check your Mac with your coding agent
 
-As of 2026-10-24. For people who run AI coding agents (Claude Code, Codex, and similar) on their Mac with full shell access.
+As of 2026-10-25. For people who run AI coding agents (Claude Code, Codex, and similar) on their Mac with full shell access.
 
 How to use it: paste this file into your agent and say: **run the checks, report, then ask me before every fix.**
 
-Lines marked "What we saw" come from two Macs (macOS 26.6.2 and 27.0.1) between Oct 22 and 24. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
+Lines marked "What we saw" come from two Macs (macOS 26.6.2 and 27.0.1) between Oct 22 and 25. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
 
 ## Contract for the agent
 
@@ -130,6 +130,13 @@ TS-2026-013 (eMudhra). Fixed: **1.104.2** or later. [Tailscale bulletins](https:
 ```bash
 tailscale version | head -1
 ```
+
+Tailworm (Oct 25): a researcher published 11 Tailscale and headscale bugs, found in 1.104.2, without warning Tailscale first. No fix exists yet. Each one needs a feature you may not use: Tailscale SSH (five bugs, a device allowed to SSH in can become root), the app connector, `tailscale serve` pointed at a Unix socket, serve paths that pass app capabilities on, or self-hosted headscale. [Tailworm report](https://www.tailworm.com/)
+```bash
+tailscale debug prefs | grep -E '"RunSSH"|"Advertise"'
+tailscale serve status --json 2>/dev/null | grep -E 'unix:|AcceptAppCaps'
+```
+At risk means `"RunSSH": true`, `"Advertise": true`, any output from the second line, or a headscale server you run. What we saw: both Macs on 1.104.2 with SSH and the connector off and no such serve entries, so none of the 11 applied.
 
 ### 7. Browser and OS
 Chrome 156 ships 353 security fixes, 6 of them critical. [SecurityWeek](https://www.securityweek.com/memory-bugs-account-for-most-of-chromes-353-new-security-fixes/) macOS 26.7.1 fixes CVE-2026-86950, a CoreGraphics bug that Apple says may have been exploited against targeted people on iOS. [Apple](https://support.apple.com/en-us/149228)
@@ -294,6 +301,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
   sudo "$(brew --prefix tailscale)/bin/tailscaled" install-system-daemon
   ```
 - Swapping the binary and running `launchctl kickstart` got the new daemon killed for a code-signing mismatch in our run.
+- Tailworm, until Tailscale ships a fix: turn off what check 6 flagged. `tailscale set --ssh=false` ends Tailscale SSH. If that is how you reach a remote machine, first make sure plain `ssh` to it works, or you lock yourself out. `tailscale set --advertise-connector=false` ends the app connector. Remove each flagged serve entry with `tailscale serve --tcp=<port> off` or `tailscale serve --https=<port> --set-path=<path> off`.
 
 **F6. Chrome and macOS.**
 - Relaunch Chrome on 156.
