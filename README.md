@@ -299,7 +299,11 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
    if [ "$ok" -eq 1 ] && [ "$n" -eq 16 ]; then sudo security trust-settings-import -d deny.plist; else echo "STOP: nothing imported ($n of 16 certificates matched, export ok=$ok)"; fi
    ```
    We ran the earlier 8-certificate version of this step on both Macs. Each needed one password and one confirmation window. We have not verified that macOS honors a deny for a certificate that is in no keychain.
-4. **After every macOS update, run check 5 again.** The update puts Apple's original `/etc/ssl/cert.pem` back. What we saw going from 26.6.2 to 26.7.1: 128 certificates again, and `/usr/bin/curl` got a 200 from the test page. The step 3 denies survived. Going from 27.0.1 to 27.2 on Oct 30: 128 certificates again, the 16 denies survived, `nscurl` rejected all 14 and `/usr/bin/curl` trusted all 14. Redoing step 2 brought both to 14 rejected with 126 certificates. So `/usr/bin/curl` needs both fixes: the clean cert.pem from step 2 and the denies from step 3. If curl gets a 200, move the old backup away (`sudo mv /etc/ssl/cert.pem.bak-emudhra-2026-10-22 /etc/ssl/cert.pem.bak-emudhra-old`) and redo step 2, so the filter runs on Apple's new file.
+4. **After every macOS update, run check 5 again.** The update puts Apple's original `/etc/ssl/cert.pem` back. What we saw going from 26.6.2 to 26.7.1: 128 certificates again, and `/usr/bin/curl` got a 200 from the test page. The step 3 denies survived. Going from 27.0.1 to 27.2 on Oct 30: 128 certificates again, the 16 denies survived, `nscurl` rejected all 14 and `/usr/bin/curl` trusted all 14. Redoing step 2 brought both to 14 rejected with 126 certificates. Step 2 alone did not stop `/usr/bin/curl` (see the note under step 2), and the step 3 denies alone did not either, so it needs both. If curl gets a 200, move the old backup away under a name that cannot overwrite anything, then redo step 2, so the filter runs on Apple's new file:
+   ```bash
+   sudo mv -n /etc/ssl/cert.pem.bak-emudhra-2026-10-22 "/etc/ssl/cert.pem.bak-emudhra-old-$(date +%Y%m%d-%H%M%S)"
+   [ -e /etc/ssl/cert.pem.bak-emudhra-2026-10-22 ] && echo "STOP: backup not moved, do not redo step 2"
+   ```
 5. **Linux (Debian or Ubuntu)**, from the incident page:
    ```bash
    sudo sed -i -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&|' -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&|' /etc/ca-certificates.conf && sudo update-ca-certificates
@@ -327,7 +331,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
   sudo "$(brew --prefix tailscale)/bin/tailscaled" install-system-daemon
   ```
 - Swapping the binary and running `launchctl kickstart` got the new daemon killed for a code-signing mismatch in our run.
-- Tailworm, only if you cannot update yet: turn off what check 6 flagged. `tailscale set --ssh=false` ends Tailscale SSH. If that is how you reach a remote machine, first make sure plain `ssh` to it works, or you lock yourself out. Remove each flagged serve entry with `tailscale serve --tcp=<port> off` or `tailscale serve --https=<port> --set-path=<path> off`.
+- Tailworm, only if you cannot update yet: turn off what check 6 flagged. `tailscale set --ssh=false` ends Tailscale SSH. If that is how you reach a remote machine, first make sure you can reach it another way, or you lock yourself out. A working `ssh` to its Tailscale address proves nothing, because Tailscale SSH answers there. Use its own SSH server over another address, such as its LAN address, or someone at its screen. Remove each flagged serve entry with `tailscale serve --tcp=<port> off` or `tailscale serve --https=<port> --set-path=<path> off`.
 - If you use Tailscale SSH, Tailscale also advises giving SSH only to the people and devices that need it, and check mode (an extra login step) for sensitive machines.
 
 **F6. Chrome and macOS.**
