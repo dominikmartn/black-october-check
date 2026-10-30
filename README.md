@@ -1,10 +1,10 @@
 # Black October: check your Mac with your coding agent
 
-As of 2026-10-25. For people who run AI coding agents (Claude Code, Codex, and similar) on their Mac with full shell access.
+As of 2026-10-30. For people who run AI coding agents (Claude Code, Codex, and similar) on their Mac with full shell access.
 
 How to use it: paste this file into your agent and say: **run the checks, report, then ask me before every fix.**
 
-Lines marked "What we saw" come from two Macs (macOS 26.6.2 and 27.0.1) between Oct 22 and 25. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
+Lines marked "What we saw" come from two Macs (macOS 26.6.2, 27.0.1 and 27.2) between Oct 22 and 30. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
 
 ## Contract for the agent
 
@@ -124,6 +124,8 @@ What we saw:
 - pip and uv on Oct 22: uv 0.12.1 and 0.11.2 trusted the bad chain. pip 26.0.1 in an old virtualenv trusted it. Apple's `/usr/bin/python3` with pip 21.2.4 trusted it. Homebrew's pip 26.2.2 refused it.
 - Node 26.12.1 returned `CERT_REVOKED`.
 - After fix F4 on both Macs: `nscurl` failed with a certificate error (-1202), `/usr/bin/curl` got no response, and GitHub, Google, Apple and npm still loaded.
+- Oct 30, macOS 27.2 (26B123): the update restored the 128-certificate `/etc/ssl/cert.pem`, and the 16 Keychain denies survived. `nscurl` rejected all 14 test hosts, `/usr/bin/curl` trusted all 14. After redoing F4 step 2, both rejected all 14 with 126 certificates.
+- Oct 30, pip on macOS 27.2: python.org 3.10 and 3.11 shipped pip 23.1.1 and trusted all 14. `pip install --user -U pip` (26.2.2) made both reject all 14. Homebrew Python 3.13, 3.14 and 3.15 with pip 26.2.2 rejected all 14, and so did two venvs with pip 25.0 and 26.2.1. Homebrew Python 3.9 with pip 25.3 trusted 7 of 14. pip 26.2.2 requires Python 3.10 or newer ([pyproject](https://github.com/pypa/pip/blob/26.2.2/pyproject.toml)), so Python 3.9 has no fixed pip.
 
 ### 6. Tailscale
 TS-2026-013 (eMudhra). Fixed: **1.104.2** or later. [Tailscale bulletins](https://tailscale.com/security-bulletins)
@@ -217,7 +219,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
    brew upgrade ca-certificates certifi
    ```
    Then update every pip and uv that check 5 flagged:
-   - pip 26.2.2 in each Python and virtualenv you install packages with: `path/to/python -m pip install -U pip`
+   - pip 26.2.2 in each Python and virtualenv you install packages with: `path/to/python -m pip install -U pip`. pip 26.2.2 needs Python 3.10 or newer ([pyproject](https://github.com/pypa/pip/blob/26.2.2/pyproject.toml)), so a Python 3.9 pip cannot be fixed. Do not install packages with Python 3.9.
    - uv 0.13.5: `uv self update` if you used the standalone installer, otherwise your package manager. Then run `uv python upgrade` for the Pythons uv manages. Virtualenvs pinned to an older Python patch version keep their old interpreter after that, and every existing virtualenv keeps its old pip, so upgrade pip in each one as above.
    - If your own code imports `certifi`, update it to 2026.10.19 in that environment.
    - Do not install packages with Apple's `/usr/bin/python3`. Its pip is old.
@@ -273,7 +275,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
    if [ "$ok" -eq 1 ] && [ "$n" -eq 16 ]; then sudo security trust-settings-import -d deny.plist; else echo "STOP: nothing imported ($n of 16 certificates matched, export ok=$ok)"; fi
    ```
    We ran the earlier 8-certificate version of this step on both Macs. Each needed one password and one confirmation window. We have not verified that macOS honors a deny for a certificate that is in no keychain.
-4. **After every macOS update, run check 5 again.** The update puts Apple's original `/etc/ssl/cert.pem` back. What we saw going from 26.6.2 to 26.7.1: 128 certificates again, and `/usr/bin/curl` got a 200 from the test page. The step 3 denies survived. So `/usr/bin/curl` needs both fixes: the clean cert.pem from step 2 and the denies from step 3. If curl gets a 200, move the old backup away (`sudo mv /etc/ssl/cert.pem.bak-emudhra-2026-10-22 /etc/ssl/cert.pem.bak-emudhra-old`) and redo step 2, so the filter runs on Apple's new file.
+4. **After every macOS update, run check 5 again.** The update puts Apple's original `/etc/ssl/cert.pem` back. What we saw going from 26.6.2 to 26.7.1: 128 certificates again, and `/usr/bin/curl` got a 200 from the test page. The step 3 denies survived. Going from 27.0.1 to 27.2 on Oct 30: 128 certificates again, the 16 denies survived, `nscurl` rejected all 14 and `/usr/bin/curl` trusted all 14. Redoing step 2 brought both to 14 rejected with 126 certificates. So `/usr/bin/curl` needs both fixes: the clean cert.pem from step 2 and the denies from step 3. If curl gets a 200, move the old backup away (`sudo mv /etc/ssl/cert.pem.bak-emudhra-2026-10-22 /etc/ssl/cert.pem.bak-emudhra-old`) and redo step 2, so the filter runs on Apple's new file.
 5. **Linux (Debian or Ubuntu)**, from the incident page:
    ```bash
    sudo sed -i -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&|' -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&|' /etc/ca-certificates.conf && sudo update-ca-certificates
