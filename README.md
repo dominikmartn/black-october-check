@@ -4,7 +4,7 @@ As of 2026-10-30. For people who run AI coding agents (Claude Code, Codex, and s
 
 How to use it: paste this file into your agent and say: **run the checks, report, then ask me before every fix.**
 
-Lines marked "What we saw" come from two Macs (macOS 26.6.2, 27.0.1 and 27.2) between Oct 22 and 30. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
+Lines marked "What we saw" come from our two Macs (macOS 26.6.2 and 27.0.1) and one reader's Mac (macOS 27.2) between Oct 22 and 30. Everything else comes from the linked sources. Versions change daily, so check them against the sources.
 
 ## Contract for the agent
 
@@ -53,7 +53,7 @@ ps -axo pid,user,comm | grep -E '[/ ]bun$'
 ```
 List what each Bun process talks to with `lsof -nP -a -p <pid> -i`. Fetches to your own machines are low risk. Fetches to arbitrary websites are the exposure.
 
-### 4. Claude Code
+### 4. Claude Code and other agent tools
 The native Claude Code binary embeds a Bun build. In our check, 2.1.306 and 2.1.307 had control=3, fix=0, so the embedded decoder lacks the upstream fix. **2.1.308 has the fix** (control=3, fix=3). We have not shown that the old versions are exploitable through WebFetch.
 ```bash
 b="$(readlink -f "$(command -v claude)")"; claude --version
@@ -62,9 +62,26 @@ brotli_fixed "$b"
 grep -n '"WebFetch"' ~/.claude/settings.json || echo "no WebFetch deny"
 ```
 
+**Trojanized Claude Code extension in Cursor (Oct 29).** A modified Claude Code for VS Code extension was served between about 09:27 and 20:35 UTC on Oct 29. Cursor says Anthropic did not build it, names versions 2.1.312 and 2.1.313 from its own extension marketplace, and has "no evidence that other versions of the extension or the official distribution are affected." The sources disagree on details: StepSecurity calls 2.1.312 clean and says 2.1.313 also went out through Open VSX. On load the bad build adds an attacker SSH key (comment `svc-telemetry`) to `authorized_keys`, installs a LaunchAgent, tries to open a reverse SSH tunnel to 134.209.82.225 and reports to port 8099. Cursor asks everyone to update to **2.1.314**, which StepSecurity verified as clean. [Cursor notice](https://cursor.com/blog/claude-code-extension-security-notice) [StepSecurity IOCs](https://www.stepsecurity.io/blog/claude-code-extension-trojanized)
+```bash
+find ~/.cursor/extensions ~/.vscode/extensions ~/.vscode-oss/extensions ~/.windsurf/extensions -maxdepth 1 -iname 'anthropic.claude-code*' 2>/dev/null
+find ~/.cursor/extensions ~/.vscode/extensions ~/.vscode-oss/extensions ~/.windsurf/extensions -maxdepth 1 -iname 'anthropic.claude-code*' -exec grep -rlsE '134\.209\.82\.225|svc-telemetry' {} + 2>/dev/null
+grep -n svc-telemetry ~/.ssh/authorized_keys 2>/dev/null
+ls -la ~/Library/LaunchAgents/com.apple.sysmond.plist ~/.config/.smt ~/.config/.smtk ~/.config/smt.cmd 2>/dev/null
+ls -a "${TMPDIR:-/tmp}" | grep -E '^\.stk_[0-9a-fA-F]{10}$'
+crontab -l 2>/dev/null | grep -E '\.smt|134\.209\.82\.225|stk_'
+```
+The first line only lists what is installed. Treat a 2.1.312 or 2.1.313 as suspect unless you know it came from Microsoft's marketplace. The other five lines look for the payload, the attacker key, the dropped files, the tunnel key and the cron entry. Each prints nothing on a clean Mac, and any output means at risk. The lines hide errors, so if a folder could not be read, report that line as unknown, not clean. Empty output means no traces were found where the lines looked. It cannot prove the bad build never ran, because cleanup removes these traces too. What we saw on Oct 30: neither Mac had Cursor or the extension, and no indicator matched.
+
+**Built-in browsers in coding assistants (EMBRACE, Oct 29).** Researchers showed that in Codex, VS Code and Claude Desktop, a local HTML file opened in the assistant's built-in browser could read any file on the disk, such as SSH keys and tokens. The lure is a project you did not write and a link to that file that the assistant itself shows. At publication Codex and VS Code had no fix; for Claude Desktop the report names no fix. Cursor and Copilot fixed their related bugs (Copilot 1.1.29). [Forever Security](https://forever.security/blog/embrace-hacking-5-ai-assistants-embedded-browsers) There is no version to check. Until fixes ship: in projects you did not write, do not open local HTML files in the assistant's built-in browser.
+
+**LM Studio (CVE-2026-119979).** Before 0.4.22+1, a crafted model repository could write files outside the models folder and run code each time LM Studio starts. Fixed: **0.4.22+1**. Check the version in LM Studio's About screen. [VulnCheck](https://www.vulncheck.com/advisories/lm-studio-before-0.4.22-1-path-traversal-via-model-downloader)
+
 ### 5. eMudhra compromised intermediates
 Eight eMudhra intermediate CA keys are compromised. Anyone holding them can impersonate any website. Browsers block them through revocation lists, but many other clients do not. [Incident page](https://emudhra.we-have-a-problem.com/)
 pip and uv bring their own CA list. `pip install -U certifi` does not change what pip itself trusts. Fixed: **pip 26.2.2** [pip changelog](https://pip.pypa.io/en/stable/news/) and **uv 0.13.5** [uv release](https://github.com/astral-sh/uv/releases/tag/0.13.5). uv 0.13.4 removed the affected root from uv's own list. 0.13.5 also rejects any chain that contains a compromised intermediate key, and updates uv's managed Python builds.
+
+Python itself now blocks the compromised keys in its `ssl` module as a last resort (CVE-2026-115557): **3.15.2, 3.14.10, 3.13.18, 3.12.16, 3.11.18**. [Python release notes](https://blog.python.org/2026/10/python-3152-31410-31318-31216-31118) This does not replace the pip and uv fixes above. Python 3.10 and older get no such fix. Check the version of each Python the test below lists, for example `/opt/homebrew/bin/python3 -V`.
 
 Java brings its own trust store too: every JDK has its own `lib/security/cacerts` and `lib/security/blocked.certs`, so test each JDK. CVE-2026-91403 affects OpenJDK 27.0.1, 25.0.5, 21.0.13, 17.0.21, 11.0.32.1, 8u504 and earlier, and Oracle Java SE and GraalVM up to the versions in Oracle's alert. Java 26 is out of support and is not on either list, so it gets no fix. [OpenJDK advisory](https://openjdk.org/groups/vulnerability/advisories/2026-10-21) [Oracle alert](https://www.oracle.com/security-alerts/alert-cve-2026-91403.html) The test below needs JDK 11 or newer, so it does not cover JDK 8.
 
@@ -128,20 +145,20 @@ What we saw:
 - Oct 30, pip on macOS 27.2: python.org 3.10 and 3.11 shipped pip 23.1.1 and trusted all 14. `pip install --user -U pip` (26.2.2) made both reject all 14. Homebrew Python 3.13, 3.14 and 3.15 with pip 26.2.2 rejected all 14, and so did two venvs with pip 25.0 and 26.2.1. Homebrew Python 3.9 with pip 25.3 trusted 7 of 14. pip 26.2.2 requires Python 3.10 or newer ([pyproject](https://github.com/pypa/pip/blob/26.2.2/pyproject.toml)), so Python 3.9 has no fixed pip.
 
 ### 6. Tailscale
-TS-2026-013 (eMudhra). Fixed: **1.104.2** or later. [Tailscale bulletins](https://tailscale.com/security-bulletins)
+Fixed: **1.104.4** or later. That covers TS-2026-013 (eMudhra, fixed in 1.104.2) and the Tailworm bugs below (TS-2026-014 to TS-2026-017, fixed in 1.104.4 on Oct 28). [Tailscale bulletins](https://tailscale.com/security-bulletins) [Tailscale on the fixes](https://tailscale.com/blog/tailscale-ssh-findings-fixes)
 ```bash
 tailscale version | head -1
 ```
 
-Tailworm (Oct 25): a researcher published 11 Tailscale and headscale bugs, found in 1.104.2, without warning Tailscale first. No fix exists yet. Each one needs a feature you may not use: Tailscale SSH (five bugs, a device allowed to SSH in can become root), the app connector, `tailscale serve` pointed at a Unix socket, serve paths that pass app capabilities on, or self-hosted headscale. [Tailworm report](https://www.tailworm.com/)
+Tailworm (Oct 25): a researcher published 11 Tailscale and headscale bugs, found in 1.104.2, without warning Tailscale first. Each one needs a feature you may not use: Tailscale SSH (a device allowed to SSH in can become root), `tailscale serve` pointed at a Unix socket, serve paths that pass app capabilities on, a next-generation app connector, or self-hosted headscale. Tailscale says that app connector is not released yet and today's app connectors are not affected. headscale 0.29.7 fixes the headscale bugs, but each device still needs Tailscale 1.104.4. [Tailworm report](https://www.tailworm.com/) If you are not on 1.104.4 yet, this shows whether any of it applies to you:
 ```bash
-tailscale debug prefs | grep -E '"RunSSH"|"Advertise"'
+tailscale debug prefs | grep -E '"RunSSH"'
 tailscale serve status --json 2>/dev/null | grep -E 'unix:|AcceptAppCaps'
 ```
-At risk means `"RunSSH": true`, `"Advertise": true`, any output from the second line, or a headscale server you run. What we saw: both Macs on 1.104.2 with SSH and the connector off and no such serve entries, so none of the 11 applied.
+At risk means `"RunSSH": true`, any output from the second line, or a headscale server you run. What we saw: both Macs on 1.104.2 with SSH off and no such serve entries, so none of the 11 applied.
 
 ### 7. Browser and OS
-Chrome 156 ships 353 security fixes, 6 of them critical. [SecurityWeek](https://www.securityweek.com/memory-bugs-account-for-most-of-chromes-353-new-security-fixes/) macOS 26.7.1 fixes CVE-2026-86950, a CoreGraphics bug that Apple says may have been exploited against targeted people on iOS. [Apple](https://support.apple.com/en-us/149228)
+Chrome 156 ships 353 security fixes, 6 of them critical. [SecurityWeek](https://www.securityweek.com/memory-bugs-account-for-most-of-chromes-353-new-security-fixes/) Two later updates fixed more, the latest is **156.0.8078.79/.80** (Oct 29), with a critical MediaStream bug. Google reports none as exploited. [Chrome releases](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02107719452.html) macOS 26.7.1 fixes CVE-2026-86950, a CoreGraphics bug that Apple says may have been exploited against targeted people on iOS. [Apple](https://support.apple.com/en-us/149228) On Oct 26 Apple released **macOS 27.2** and **26.7.2** with more security fixes, none marked as exploited. [macOS 27.2](https://support.apple.com/en-us/149521) [macOS 26.7.2](https://support.apple.com/en-us/149522)
 ```bash
 defaults read "/Applications/Google Chrome.app/Contents/Info" CFBundleShortVersionString
 softwareupdate -l
@@ -212,6 +229,12 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
 - Re-run check 4. It must show fix > 0.
 - If you added a WebFetch deny earlier, remove it now (see "How to undo").
 - Only if you must stay on an older version: add `"permissions": { "deny": ["WebFetch"] }` to `~/.claude/settings.json`, merged into your existing `permissions`, and read pages with plain `curl` without `--compressed`.
+- Trojanized extension, if check 4 flagged it. Uninstalling the extension is not enough, because the LaunchAgent and scripts stay behind.
+  1. Download Cursor's `remediate-macos.sh` from the [Cursor notice](https://cursor.com/blog/claude-code-extension-security-notice), read it, then run `bash remediate-macos.sh` as your own user, not as root. It must exit with 0.
+  2. Re-run the five indicator lines of check 4. They must print nothing.
+  3. Update the extension to 2.1.314 or later.
+  4. From a different, clean machine, rotate everything this Mac could reach: SSH keys, GitHub and CI tokens, cloud keys, package registry tokens, and active sessions.
+  5. Decide whether to rebuild the Mac. Cursor advises assessing it, and StepSecurity advises rebuilding if the tunnel connected. These checks cannot show whether the tunnel connected, so if any indicator hit, our advice is to rebuild.
 
 **F4. eMudhra.**
 1. Update the Homebrew bundles. We verified this fixes Homebrew Python.
@@ -223,6 +246,7 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
    - uv 0.13.5: `uv self update` if you used the standalone installer, otherwise your package manager. Then run `uv python upgrade` for the Pythons uv manages. Virtualenvs pinned to an older Python patch version keep their old interpreter after that, and every existing virtualenv keeps its old pip, so upgrade pip in each one as above.
    - If your own code imports `certifi`, update it to 2026.10.19 in that environment.
    - Do not install packages with Apple's `/usr/bin/python3`. Its pip is old.
+   - Update Python itself to 3.15.2, 3.14.10, 3.13.18, 3.12.16 or 3.11.18. For Homebrew: `brew upgrade python@3.14` (and each other `python@3.x` you have). uv-managed Pythons need `uv python upgrade` as above. Then check each virtualenv's own interpreter with `path/to/venv/bin/python -V`, because some keep the old version.
    Then run check 5 again.
 2. Remove the two affected roots from `/etc/ssl/cert.pem`. The script finds them by SHA-256 fingerprint, not by name. It builds the new file first and installs it only if exactly the matched roots are gone, so a failed run can never leave an empty trust store.
    ```bash
@@ -297,17 +321,18 @@ Then restart every process from the `lsof` list in check 1, and re-run that list
    ```
    A JVM reads `blocked.certs` only when it starts, so restart every running Java process afterwards (Gradle daemons, IDEs, services). Then run check 5 again. It must show "safe" for that JDK.
 
-**F5. Tailscale.** Update to 1.104.2 or later.
-- If Homebrew's `tailscaled` runs as a system daemon, use this to reinstall it and restart it:
+**F5. Tailscale.** Update to 1.104.4 or later. The App Store and standalone apps update themselves or through the app. Homebrew installs cannot (`tailscale update` says "not supported"), so run `brew upgrade tailscale`.
+- If Homebrew's `tailscaled` runs as a system daemon, use this after the upgrade to reinstall it and restart it:
   ```bash
   sudo "$(brew --prefix tailscale)/bin/tailscaled" install-system-daemon
   ```
 - Swapping the binary and running `launchctl kickstart` got the new daemon killed for a code-signing mismatch in our run.
-- Tailworm, until Tailscale ships a fix: turn off what check 6 flagged. `tailscale set --ssh=false` ends Tailscale SSH. If that is how you reach a remote machine, first make sure plain `ssh` to it works, or you lock yourself out. `tailscale set --advertise-connector=false` ends the app connector. Remove each flagged serve entry with `tailscale serve --tcp=<port> off` or `tailscale serve --https=<port> --set-path=<path> off`.
+- Tailworm, only if you cannot update yet: turn off what check 6 flagged. `tailscale set --ssh=false` ends Tailscale SSH. If that is how you reach a remote machine, first make sure plain `ssh` to it works, or you lock yourself out. Remove each flagged serve entry with `tailscale serve --tcp=<port> off` or `tailscale serve --https=<port> --set-path=<path> off`.
+- If you use Tailscale SSH, Tailscale also advises giving SSH only to the people and devices that need it, and check mode (an extra login step) for sensitive machines.
 
 **F6. Chrome and macOS.**
-- Relaunch Chrome on 156.
-- Install the macOS update at a time when a restart is fine. Afterwards, run check 5 again (see F4, step 4).
+- Relaunch Chrome on 156.0.8078.79 or later.
+- Install the macOS update (27.2 or 26.7.2) at a time when a restart is fine. Afterwards, run check 5 again (see F4, step 4).
 
 **F7. Rotate keys** that were stored on any platform in check 9.
 
